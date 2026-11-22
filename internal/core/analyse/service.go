@@ -21,7 +21,7 @@ func NewService(sizer analyseports.DirectorySizer) *Service {
 	return &Service{sizer: sizer}
 }
 
-func (s *Service) Run(ctx context.Context, paths []string, recursive bool, depth int, includeFiles bool, directoryTimeout time.Duration) (*Result, error) {
+func (s *Service) Run(ctx context.Context, paths []string, recursive bool, depth int, includeFiles bool, exclude []string, directoryTimeout time.Duration, onProgress func(string)) (*Result, error) {
 	if len(paths) == 0 {
 		return nil, domain.ErrNoDirectories
 	}
@@ -31,7 +31,9 @@ func (s *Service) Run(ctx context.Context, paths []string, recursive bool, depth
 		Recursive:        recursive,
 		Depth:            depth,
 		IncludeFiles:     includeFiles,
+		Exclude:          exclude,
 		DirectoryTimeout: directoryTimeout,
+		OnProgress:       onProgress,
 	})
 	if err != nil {
 		return nil, err

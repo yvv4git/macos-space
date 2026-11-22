@@ -3,5 +3,8 @@ directories = [
   "/Users/vladimireliseev/Downloads",
   "/Users/vladimireliseev/Library/Caches",
 ]
-directoryTimeout = "30s"
+exclude = [
+  "/Users/vladimireliseev/Library",
+]
+directoryTimeout = "60s"
 depth = 0

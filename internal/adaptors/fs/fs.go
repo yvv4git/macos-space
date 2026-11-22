@@ -21,8 +21,9 @@ func New() *FS {
 }
 
 func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.DirectoryUsagesParams) ([]domain.DirectoryUsage, error) {
+	excludePaths := normalizeExcludePaths(params.Exclude)
 	if params.Recursive {
-		return f.recursiveDirectoryUsages(ctx, params)
+		return f.recursiveDirectoryUsages(ctx, params, excludePaths)
 	}
 
 	usages := make([]domain.DirectoryUsage, 0, len(params.Paths))
@@ -31,8 +32,12 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if isExcludedPath(path, excludePaths) {
+			continue
+		}
 
-		sizeBytes, err := f.directorySizeWithTimeout(ctx, path, params.DirectoryTimeout)
+		f.reportProgress(params, path)
+		sizeBytes, err := f.directorySizeWithTimeout(ctx, path, params.DirectoryTimeout, excludePaths, params.OnProgress)
 		if err != nil {
 			return nil, fmt.Errorf("calculate directory size %q: %w", path, err)
 		}
@@ -44,7 +49,7 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 		})
 
 		if params.IncludeFiles {
-			fileUsages, err := f.directoryFileUsages(ctx, path, params.DirectoryTimeout)
+			fileUsages, err := f.directoryFileUsages(ctx, path, params.DirectoryTimeout, excludePaths)
 			if err != nil {
 				return nil, fmt.Errorf("list files %q: %w", path, err)
 			}
@@ -56,8 +61,9 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 	return usages, nil
 }
 
-func (f *FS) directorySize(ctx context.Context, root string) (int64, error) {
+func (f *FS) directorySize(ctx context.Context, root string, excludePaths []string, onProgress func(string)) (int64, error) {
 	var sizeBytes int64
+	var lastProgressDir string
 
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -66,7 +72,17 @@ func (f *FS) directorySize(ctx context.Context, root string) (int64, error) {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("scan %q: %w", path, err)
 		}
+		if isExcludedPath(path, excludePaths) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if entry.IsDir() {
+			if onProgress != nil && path != lastProgressDir {
+				onProgress(path)
+				lastProgressDir = path
+			}
 			return nil
 		}
 
@@ -86,13 +102,16 @@ func (f *FS) directorySize(ctx context.Context, root string) (int64, error) {
 	return sizeBytes, nil
 }
 
-func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.DirectoryUsagesParams) ([]domain.DirectoryUsage, error) {
+func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.DirectoryUsagesParams, excludePaths []string) ([]domain.DirectoryUsage, error) {
 	seen := make(map[string]struct{})
 	usages := make([]domain.DirectoryUsage, 0)
 
 	for _, root := range params.Paths {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if isExcludedPath(root, excludePaths) {
+			continue
 		}
 
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -101,6 +120,12 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 			}
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("scan %q: %w", path, err)
+			}
+			if isExcludedPath(path, excludePaths) {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
 			}
 			if !entry.IsDir() {
 				if params.IncludeFiles && !f.isBeyondDepth(root, path, params.Depth) {
@@ -131,7 +156,8 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 			}
 
 			seen[path] = struct{}{}
-			sizeBytes, err := f.directorySizeWithTimeout(ctx, path, params.DirectoryTimeout)
+			f.reportProgress(params, path)
+			sizeBytes, err := f.directorySizeWithTimeout(ctx, path, params.DirectoryTimeout, excludePaths, nil)
 			if err != nil {
 				return err
 			}
@@ -182,7 +208,13 @@ func (f *FS) directoryOwnSize(ctx context.Context, root string) (int64, error) {
 	return sizeBytes, nil
 }
 
-func (f *FS) directoryFileUsages(ctx context.Context, root string, timeout time.Duration) ([]domain.DirectoryUsage, error) {
+func (f *FS) reportProgress(params *analyseports.DirectoryUsagesParams, path string) {
+	if params.OnProgress != nil {
+		params.OnProgress(path)
+	}
+}
+
+func (f *FS) directoryFileUsages(ctx context.Context, root string, timeout time.Duration, excludePaths []string) ([]domain.DirectoryUsage, error) {
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -203,13 +235,18 @@ func (f *FS) directoryFileUsages(ctx context.Context, root string, timeout time.
 			continue
 		}
 
+		path := filepath.Join(root, entry.Name())
+		if isExcludedPath(path, excludePaths) {
+			continue
+		}
+
 		info, err := entry.Info()
 		if err != nil {
 			return nil, err
 		}
 
 		usages = append(usages, domain.DirectoryUsage{
-			Path:      filepath.Join(root, entry.Name()),
+			Path:      path,
 			SizeBytes: info.Size(),
 			IsDir:     false,
 		})
@@ -218,15 +255,15 @@ func (f *FS) directoryFileUsages(ctx context.Context, root string, timeout time.
 	return usages, nil
 }
 
-func (f *FS) directorySizeWithTimeout(ctx context.Context, root string, timeout time.Duration) (int64, error) {
+func (f *FS) directorySizeWithTimeout(ctx context.Context, root string, timeout time.Duration, excludePaths []string, onProgress func(string)) (int64, error) {
 	if timeout <= 0 {
-		return f.directorySize(ctx, root)
+		return f.directorySize(ctx, root, excludePaths, onProgress)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	return f.directorySize(ctx, root)
+	return f.directorySize(ctx, root, excludePaths, onProgress)
 }
 
 func (f *FS) directoryOwnSizeWithTimeout(ctx context.Context, root string, timeout time.Duration) (int64, error) {
@@ -278,4 +315,47 @@ func stringsSplitPath(path string) []string {
 	}
 
 	return parts
+}
+
+func normalizeExcludePaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	normalized := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+
+		cleanPath := filepath.Clean(path)
+		if _, ok := seen[cleanPath]; ok {
+			continue
+		}
+
+		seen[cleanPath] = struct{}{}
+		normalized = append(normalized, cleanPath)
+	}
+
+	return normalized
+}
+
+func isExcludedPath(path string, excludePaths []string) bool {
+	cleanPath := filepath.Clean(path)
+	for _, excludePath := range excludePaths {
+		if cleanPath == excludePath {
+			return true
+		}
+
+		relPath, err := filepath.Rel(excludePath, cleanPath)
+		if err != nil {
+			continue
+		}
+		if relPath != ".." && !strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+			return true
+		}
+	}
+
+	return false
 }

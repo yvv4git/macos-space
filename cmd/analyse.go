@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -41,6 +43,10 @@ func SetupAnalyseCommand() *cobra.Command {
   macos-space analyse --files
   macos-space analyse -f
 
+  # Exclude directories
+  macos-space analyse --exclude ~/Downloads/tmp
+  macos-space analyse -e ~/Downloads/tmp -e ~/Downloads/cache
+
   # Combine flags
   macos-space analyse --recursive --depth 2
   macos-space analyse -r -d 2
@@ -53,8 +59,8 @@ func SetupAnalyseCommand() *cobra.Command {
   macos-space analyse -p /Users/vladimireliseev/Downloads -r -d 2
   macos-space analyse --path /Users/vladimireliseev/Downloads --recursive --depth 1 --files
   macos-space analyse -p /Users/vladimireliseev/Downloads -r -d 1 -f
-  macos-space analyse --config config.toml --path /Users/vladimireliseev/Downloads --recursive --depth 2 --files
-  macos-space analyse -c config.toml -p /Users/vladimireliseev/Downloads -r -d 2 -f`,
+  macos-space analyse --config config.toml --path /Users/vladimireliseev/Downloads --recursive --depth 2 --files --exclude ~/Downloads/tmp
+  macos-space analyse -c config.toml -p /Users/vladimireliseev/Downloads -r -d 2 -f -e ~/Downloads/tmp`,
 		RunE: runAnalyse,
 	}
 
@@ -62,6 +68,7 @@ func SetupAnalyseCommand() *cobra.Command {
 	command.Flags().IntP("depth", "d", 0, "limit recursive depth (0 means unlimited)")
 	command.Flags().StringP("path", "p", "", "scan a specific directory instead of configured directories")
 	command.Flags().BoolP("files", "f", false, "include files in output")
+	command.Flags().StringArrayP("exclude", "e", nil, "directories to exclude from scan (can be repeated)")
 
 	return command
 }
@@ -92,6 +99,11 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 		return fmt.Errorf("get files flag: %w", err)
 	}
 
+	excludePaths, err := command.Flags().GetStringArray("exclude")
+	if err != nil {
+		return fmt.Errorf("get exclude flag: %w", err)
+	}
+
 	app, err := application.NewAnalyseApplication(command.Context(), application.AnalyseOptions{
 		ConfigPath: configPath,
 	})
@@ -100,10 +112,12 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 	}
 	defer app.Shutdown()
 
-	info := app.RunInfo(recursive, depth, path, includeFiles)
+	info := app.RunInfo(recursive, depth, path, includeFiles, excludePaths)
 	printAnalyseInfo(command, info)
 
-	result, err := app.Run(recursive, depth, path, includeFiles)
+	progress := newAnalyseProgressPrinter(command)
+	result, err := app.Run(recursive, depth, path, includeFiles, excludePaths, progress.Report)
+	progress.Done()
 	if err != nil {
 		return err
 	}
@@ -118,6 +132,46 @@ type analyseNode struct {
 	children []*analyseNode
 }
 
+type analyseProgressPrinter struct {
+	command  *cobra.Command
+	interval time.Duration
+	mu       sync.Mutex
+	last     time.Time
+	printed  bool
+}
+
+func newAnalyseProgressPrinter(command *cobra.Command) *analyseProgressPrinter {
+	return &analyseProgressPrinter{
+		command:  command,
+		interval: 250 * time.Millisecond,
+	}
+}
+
+func (p *analyseProgressPrinter) Report(path string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+	if !p.last.IsZero() && now.Sub(p.last) < p.interval {
+		return
+	}
+
+	p.last = now
+	p.printed = true
+	p.command.PrintErrf("\rScanning: %-80.80s", path)
+}
+
+func (p *analyseProgressPrinter) Done() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.printed {
+		return
+	}
+
+	p.command.PrintErrf("\r%-100.100s\r", "")
+}
+
 func printAnalyseInfo(command *cobra.Command, info *application.AnalyseRunInfo) {
 	if info == nil {
 		return
@@ -125,6 +179,7 @@ func printAnalyseInfo(command *cobra.Command, info *application.AnalyseRunInfo) 
 
 	command.PrintErrln("Settings:")
 	command.PrintErrf("  directories: %s\n", strings.Join(info.Directories, ", "))
+	command.PrintErrf("  exclude: %s\n", strings.Join(info.Exclude, ", "))
 	command.PrintErrf("  recursive: %t\n", info.Recursive)
 	command.PrintErrf("  depth: %d\n", info.Depth)
 	command.PrintErrf("  timeout: %s\n", info.DirectoryTimeout)
