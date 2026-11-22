@@ -133,7 +133,7 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 			}
 
 			seen[path] = struct{}{}
-			sizeBytes, err := f.directoryOwnSizeWithTimeout(ctx, path, params.DirectoryTimeout)
+			sizeBytes, err := f.directorySizeWithTimeout(ctx, path, params.DirectoryTimeout)
 			if err != nil {
 				return err
 			}
