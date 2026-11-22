@@ -34,22 +34,31 @@ func SetupAnalyseCommand() *cobra.Command {
   macos-space analyse --depth 2
   macos-space analyse -d 2
 
+  # Include files in output
+  macos-space analyse --files
+  macos-space analyse -f
+
   # Combine flags
   macos-space analyse --recursive --depth 2
   macos-space analyse -r -d 2
   macos-space analyse -p ~/Downloads -r -d 1
+  macos-space analyse --recursive --files
+  macos-space analyse -r -f
   macos-space analyse --path /Users/vladimireliseev/Downloads --recursive
   macos-space analyse -p /Users/vladimireliseev/Downloads -r
   macos-space analyse --path /Users/vladimireliseev/Downloads --recursive --depth 2
   macos-space analyse -p /Users/vladimireliseev/Downloads -r -d 2
-  macos-space analyse --config config.toml --path /Users/vladimireliseev/Downloads --recursive --depth 2
-  macos-space analyse -c config.toml -p /Users/vladimireliseev/Downloads -r -d 2`,
+  macos-space analyse --path /Users/vladimireliseev/Downloads --recursive --depth 1 --files
+  macos-space analyse -p /Users/vladimireliseev/Downloads -r -d 1 -f
+  macos-space analyse --config config.toml --path /Users/vladimireliseev/Downloads --recursive --depth 2 --files
+  macos-space analyse -c config.toml -p /Users/vladimireliseev/Downloads -r -d 2 -f`,
 		RunE: runAnalyse,
 	}
 
 	command.Flags().BoolP("recursive", "r", false, "walk directories recursively")
 	command.Flags().IntP("depth", "d", 0, "limit recursive depth (0 means unlimited)")
 	command.Flags().StringP("path", "p", "", "scan a specific directory instead of configured directories")
+	command.Flags().BoolP("files", "f", false, "include files in output")
 
 	return command
 }
@@ -75,6 +84,11 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 		return fmt.Errorf("get path flag: %w", err)
 	}
 
+	includeFiles, err := command.Flags().GetBool("files")
+	if err != nil {
+		return fmt.Errorf("get files flag: %w", err)
+	}
+
 	app, err := application.NewAnalyseApplication(command.Context(), application.AnalyseOptions{
 		ConfigPath: configPath,
 	})
@@ -83,7 +97,7 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 	}
 	defer app.Shutdown()
 
-	result, err := app.Run(recursive, depth, path)
+	result, err := app.Run(recursive, depth, path, includeFiles)
 	if err != nil {
 		return err
 	}

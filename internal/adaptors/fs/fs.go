@@ -41,6 +41,15 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 			Path:      path,
 			SizeBytes: sizeBytes,
 		})
+
+		if params.IncludeFiles {
+			fileUsages, err := f.directoryFileUsages(ctx, path, params.DirectoryTimeout)
+			if err != nil {
+				return nil, fmt.Errorf("list files %q: %w", path, err)
+			}
+
+			usages = append(usages, fileUsages...)
+		}
 	}
 
 	return usages, nil
@@ -97,6 +106,23 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 				return err
 			}
 			if !entry.IsDir() {
+				if params.IncludeFiles && !f.isBeyondDepth(root, path, params.Depth) {
+					if _, ok := seen[path]; ok {
+						return nil
+					}
+
+					info, err := entry.Info()
+					if err != nil {
+						return err
+					}
+
+					seen[path] = struct{}{}
+					usages = append(usages, domain.DirectoryUsage{
+						Path:      path,
+						SizeBytes: info.Size(),
+					})
+				}
+
 				return nil
 			}
 			if f.isBeyondDepth(root, path, params.Depth) {
@@ -155,6 +181,41 @@ func (f *FS) directoryOwnSize(ctx context.Context, root string) (int64, error) {
 	}
 
 	return sizeBytes, nil
+}
+
+func (f *FS) directoryFileUsages(ctx context.Context, root string, timeout time.Duration) ([]domain.DirectoryUsage, error) {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+
+	usages := make([]domain.DirectoryUsage, 0, len(entries))
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if entry.IsDir() {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			return nil, err
+		}
+
+		usages = append(usages, domain.DirectoryUsage{
+			Path:      filepath.Join(root, entry.Name()),
+			SizeBytes: info.Size(),
+		})
+	}
+
+	return usages, nil
 }
 
 func (f *FS) directorySizeWithTimeout(ctx context.Context, root string, timeout time.Duration) (int64, error) {
