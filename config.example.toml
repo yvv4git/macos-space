@@ -6,5 +6,5 @@ directories = [
 exclude = [
   "/Users/vladimireliseev/Library",
 ]
-directoryTimeout = "60s"
+directoryTimeout = "120s"
 depth = 0
