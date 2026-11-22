@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/yvv4git/macos-space/internal/domain"
@@ -98,6 +99,9 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 			if !entry.IsDir() {
 				return nil
 			}
+			if f.isBeyondDepth(root, path, params.Depth) {
+				return filepath.SkipDir
+			}
 			if _, ok := seen[path]; ok {
 				return nil
 			}
@@ -173,4 +177,44 @@ func (f *FS) directoryOwnSizeWithTimeout(ctx context.Context, root string, timeo
 	defer cancel()
 
 	return f.directoryOwnSize(ctx, root)
+}
+
+func (f *FS) isBeyondDepth(root, path string, depth int) bool {
+	if depth <= 0 {
+		return false
+	}
+
+	relPath, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	if relPath == "." {
+		return false
+	}
+
+	segments := 0
+	for _, segment := range filepath.SplitList(filepath.ToSlash(relPath)) {
+		_ = segment
+	}
+	segments = len(stringsSplitPath(relPath))
+
+	return segments > depth
+}
+
+func stringsSplitPath(path string) []string {
+	cleanPath := filepath.Clean(path)
+	if cleanPath == "." {
+		return nil
+	}
+
+	parts := make([]string, 0)
+	for _, part := range strings.Split(cleanPath, string(os.PathSeparator)) {
+		if part == "" || part == "." {
+			continue
+		}
+
+		parts = append(parts, part)
+	}
+
+	return parts
 }

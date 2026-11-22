@@ -40,8 +40,13 @@ func NewAnalyseApplication(parent context.Context, opts AnalyseOptions) (*Analys
 	}, nil
 }
 
-func (a *AnalyseApplication) Run(recursive bool) (*analyse.Result, error) {
-	return a.service.Run(a.ctx, a.cfg.Analyse.Directories, recursive, a.cfg.Analyse.DirectoryTimeout)
+func (a *AnalyseApplication) Run(recursive bool, depth int, path string) (*analyse.Result, error) {
+	directories := a.cfg.Analyse.Directories
+	if path != "" {
+		directories = []string{path}
+	}
+
+	return a.service.Run(a.ctx, directories, recursive, depth, a.cfg.Analyse.DirectoryTimeout)
 }
 
 func (a *AnalyseApplication) Shutdown() {

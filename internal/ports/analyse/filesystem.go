@@ -10,6 +10,7 @@ import (
 type DirectoryUsagesParams struct {
 	Paths            []string
 	Recursive        bool
+	Depth            int
 	DirectoryTimeout time.Duration
 }
 

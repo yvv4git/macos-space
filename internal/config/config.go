@@ -9,4 +9,5 @@ type Config struct {
 type Analyse struct {
 	Directories      []string      `toml:"directories"`
 	DirectoryTimeout time.Duration `toml:"directoryTimeout"`
+	Depth            int           `toml:"depth"`
 }
