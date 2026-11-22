@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
+	"sort"
 
 	"github.com/spf13/cobra"
 
@@ -107,20 +109,128 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printAnalyseResult(result *application.AnalyseResult) {
-	sizeWidth := 0
-	formattedSizes := make([]string, 0, len(result.Directories))
+type analyseNode struct {
+	usage    application.DirectoryUsage
+	children []*analyseNode
+}
 
-	for _, directory := range result.Directories {
-		formattedSize := formatBytes(directory.SizeBytes)
-		if len(formattedSize) > sizeWidth {
-			sizeWidth = len(formattedSize)
-		}
-		formattedSizes = append(formattedSizes, formattedSize)
+func printAnalyseResult(result *application.AnalyseResult) {
+	roots := buildAnalyseTree(result.Directories)
+	sizeWidth := analyseTreeSizeWidth(roots)
+	for index, root := range roots {
+		printAnalyseNode(root, "", index == len(roots)-1, true, sizeWidth)
+	}
+}
+
+func buildAnalyseTree(usages []application.DirectoryUsage) []*analyseNode {
+	nodes := make(map[string]*analyseNode, len(usages))
+	sortedUsages := append([]application.DirectoryUsage(nil), usages...)
+	sort.Slice(sortedUsages, func(i, j int) bool {
+		return len(sortedUsages[i].Path) < len(sortedUsages[j].Path)
+	})
+
+	for _, usage := range sortedUsages {
+		nodes[usage.Path] = &analyseNode{usage: usage}
 	}
 
-	for index, directory := range result.Directories {
-		fmt.Printf("%*s  %s\n", sizeWidth, formattedSizes[index], directory.Path)
+	roots := make([]*analyseNode, 0)
+	for _, usage := range sortedUsages {
+		node := nodes[usage.Path]
+		parentPath := parentAnalysePath(usage.Path, nodes)
+		if parentPath == "" {
+			roots = append(roots, node)
+			continue
+		}
+
+		parent := nodes[parentPath]
+		parent.children = append(parent.children, node)
+	}
+
+	sortAnalyseNodes(roots)
+	return roots
+}
+
+func parentAnalysePath(path string, nodes map[string]*analyseNode) string {
+	current := filepath.Dir(path)
+	for current != "." && current != string(filepath.Separator) {
+		if _, ok := nodes[current]; ok {
+			return current
+		}
+
+		next := filepath.Dir(current)
+		if next == current {
+			break
+		}
+		current = next
+	}
+
+	if _, ok := nodes[current]; ok {
+		return current
+	}
+
+	return ""
+}
+
+func sortAnalyseNodes(nodes []*analyseNode) {
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].usage.SizeBytes == nodes[j].usage.SizeBytes {
+			return nodes[i].usage.Path < nodes[j].usage.Path
+		}
+
+		return nodes[i].usage.SizeBytes > nodes[j].usage.SizeBytes
+	})
+
+	for _, node := range nodes {
+		sortAnalyseNodes(node.children)
+	}
+}
+
+func analyseTreeSizeWidth(nodes []*analyseNode) int {
+	width := 0
+	var walk func([]*analyseNode)
+	walk = func(children []*analyseNode) {
+		for _, node := range children {
+			formattedSize := formatBytes(node.usage.SizeBytes)
+			if len(formattedSize) > width {
+				width = len(formattedSize)
+			}
+			walk(node.children)
+		}
+	}
+	walk(nodes)
+
+	return width
+}
+
+func printAnalyseNode(node *analyseNode, prefix string, isLast bool, isRoot bool, sizeWidth int) {
+	label := node.usage.Path
+	connector := ""
+	if !isRoot {
+		label = filepath.Base(node.usage.Path)
+		connector = "├── "
+		if isLast {
+			connector = "└── "
+		}
+	}
+
+	suffix := ""
+	if node.usage.IsDir {
+		suffix = "/"
+	}
+
+	fmt.Printf("%*s  %s%s%s%s\n", sizeWidth, formatBytes(node.usage.SizeBytes), prefix, connector, label, suffix)
+
+	childPrefix := prefix
+	if !isRoot {
+		if isLast {
+			childPrefix += "    "
+		} else {
+			childPrefix += "│   "
+		}
+	}
+
+	for index, child := range node.children {
+		printAnalyseNode(child, childPrefix, index == len(node.children)-1, false, sizeWidth)
 	}
 }
 

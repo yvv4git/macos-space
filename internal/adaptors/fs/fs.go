@@ -40,6 +40,7 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 		usages = append(usages, domain.DirectoryUsage{
 			Path:      path,
 			SizeBytes: sizeBytes,
+			IsDir:     true,
 		})
 
 		if params.IncludeFiles {
@@ -120,6 +121,7 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 					usages = append(usages, domain.DirectoryUsage{
 						Path:      path,
 						SizeBytes: info.Size(),
+						IsDir:     false,
 					})
 				}
 
@@ -141,6 +143,7 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 			usages = append(usages, domain.DirectoryUsage{
 				Path:      path,
 				SizeBytes: sizeBytes,
+				IsDir:     true,
 			})
 
 			return nil
@@ -212,6 +215,7 @@ func (f *FS) directoryFileUsages(ctx context.Context, root string, timeout time.
 		usages = append(usages, domain.DirectoryUsage{
 			Path:      filepath.Join(root, entry.Name()),
 			SizeBytes: info.Size(),
+			IsDir:     false,
 		})
 	}
 
