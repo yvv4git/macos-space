@@ -10,7 +10,11 @@ import (
 type DirectoryUsagesParams struct {
 	Paths            []string
 	Recursive        bool
+	Depth            int
+	IncludeFiles     bool
+	Exclude          []string
 	DirectoryTimeout time.Duration
+	OnProgress       func(path string)
 }
 
 type DirectorySizer interface {
