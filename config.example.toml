@@ -1,10 +1,10 @@
 [analyse]
 directories = [
-  "/Users/vladimireliseev/Downloads",
-  "/Users/vladimireliseev/Library/Caches",
+  "~/Downloads",
+  "~/Library/Caches",
 ]
 exclude = [
-  "/Users/vladimireliseev/Library",
+  "~/Library",
 ]
 directoryTimeout = "120s"
 depth = 0
