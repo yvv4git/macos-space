@@ -26,7 +26,7 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 		return f.recursiveDirectoryUsages(ctx, params, excludePaths)
 	}
 
-	usages := make([]domain.DirectoryUsage, 0, len(params.Paths))
+	usages := make([]domain.DirectoryUsage, 0)
 
 	for _, path := range params.Paths {
 		if err := ctx.Err(); err != nil {
@@ -36,25 +36,50 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 			continue
 		}
 
-		f.reportProgress(params, path)
-		sizeBytes, err := f.directorySizeWithTimeout(ctx, path, params.DirectoryTimeout, excludePaths, params.OnProgress)
+		entries, err := os.ReadDir(path)
 		if err != nil {
-			return nil, fmt.Errorf("calculate directory size %q: %w", path, err)
+			return nil, fmt.Errorf("read directory %q: %w", path, err)
 		}
 
-		usages = append(usages, domain.DirectoryUsage{
-			Path:      path,
-			SizeBytes: sizeBytes,
-			IsDir:     true,
-		})
-
-		if params.IncludeFiles {
-			fileUsages, err := f.directoryFileUsages(ctx, path, params.DirectoryTimeout, excludePaths)
-			if err != nil {
-				return nil, fmt.Errorf("list files %q: %w", path, err)
+		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return nil, err
 			}
 
-			usages = append(usages, fileUsages...)
+			childPath := filepath.Join(path, entry.Name())
+			if isExcludedPath(childPath, excludePaths) {
+				continue
+			}
+
+			if entry.IsDir() {
+				f.reportProgress(params, childPath)
+				sizeBytes, err := f.directorySizeWithTimeout(ctx, childPath, params.DirectoryTimeout, excludePaths, params.OnProgress)
+				if err != nil {
+					return nil, fmt.Errorf("calculate directory size %q: %w", childPath, err)
+				}
+
+				usages = append(usages, domain.DirectoryUsage{
+					Path:      childPath,
+					SizeBytes: sizeBytes,
+					IsDir:     true,
+				})
+				continue
+			}
+
+			if !params.IncludeFiles {
+				continue
+			}
+
+			info, err := entry.Info()
+			if err != nil {
+				return nil, fmt.Errorf("read file info %q: %w", childPath, err)
+			}
+
+			usages = append(usages, domain.DirectoryUsage{
+				Path:      childPath,
+				SizeBytes: info.Size(),
+				IsDir:     false,
+			})
 		}
 	}
 
