@@ -61,10 +61,10 @@ func (f *FS) directorySize(ctx context.Context, root string) (int64, error) {
 
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			return fmt.Errorf("access %q: %w", path, walkErr)
 		}
 		if err := ctx.Err(); err != nil {
-			return err
+			return fmt.Errorf("scan %q: %w", path, err)
 		}
 		if entry.IsDir() {
 			return nil
@@ -72,7 +72,7 @@ func (f *FS) directorySize(ctx context.Context, root string) (int64, error) {
 
 		info, err := entry.Info()
 		if err != nil {
-			return err
+			return fmt.Errorf("read file info %q: %w", path, err)
 		}
 
 		sizeBytes += info.Size()
@@ -80,10 +80,6 @@ func (f *FS) directorySize(ctx context.Context, root string) (int64, error) {
 		return nil
 	})
 	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, err
-		}
-
 		return 0, err
 	}
 
@@ -101,10 +97,10 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
-				return walkErr
+				return fmt.Errorf("access %q: %w", path, walkErr)
 			}
 			if err := ctx.Err(); err != nil {
-				return err
+				return fmt.Errorf("scan %q: %w", path, err)
 			}
 			if !entry.IsDir() {
 				if params.IncludeFiles && !f.isBeyondDepth(root, path, params.Depth) {
@@ -114,7 +110,7 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 
 					info, err := entry.Info()
 					if err != nil {
-						return err
+						return fmt.Errorf("read file info %q: %w", path, err)
 					}
 
 					seen[path] = struct{}{}

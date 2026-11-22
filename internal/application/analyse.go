@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/yvv4git/macos-space/internal/adaptors/fs"
 	"github.com/yvv4git/macos-space/internal/config"
@@ -24,6 +25,14 @@ type AnalyseApplication struct {
 	cfg     config.Config
 }
 
+type AnalyseRunInfo struct {
+	Directories      []string
+	Recursive        bool
+	Depth            int
+	DirectoryTimeout time.Duration
+	IncludeFiles     bool
+}
+
 func NewAnalyseApplication(parent context.Context, opts AnalyseOptions) (*AnalyseApplication, error) {
 	var cfg config.Config
 	if err := config.Load(opts.ConfigPath, &cfg); err != nil {
@@ -38,6 +47,21 @@ func NewAnalyseApplication(parent context.Context, opts AnalyseOptions) (*Analys
 		service: analyse.NewService(fs.New()),
 		cfg:     cfg,
 	}, nil
+}
+
+func (a *AnalyseApplication) RunInfo(recursive bool, depth int, path string, includeFiles bool) *AnalyseRunInfo {
+	directories := a.cfg.Analyse.Directories
+	if path != "" {
+		directories = []string{path}
+	}
+
+	return &AnalyseRunInfo{
+		Directories:      directories,
+		Recursive:        recursive,
+		Depth:            depth,
+		DirectoryTimeout: a.cfg.Analyse.DirectoryTimeout,
+		IncludeFiles:     includeFiles,
+	}
 }
 
 func (a *AnalyseApplication) Run(recursive bool, depth int, path string, includeFiles bool) (*analyse.Result, error) {

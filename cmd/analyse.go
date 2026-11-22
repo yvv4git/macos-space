@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -99,6 +100,9 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 	}
 	defer app.Shutdown()
 
+	info := app.RunInfo(recursive, depth, path, includeFiles)
+	printAnalyseInfo(command, info)
+
 	result, err := app.Run(recursive, depth, path, includeFiles)
 	if err != nil {
 		return err
@@ -112,6 +116,20 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 type analyseNode struct {
 	usage    application.DirectoryUsage
 	children []*analyseNode
+}
+
+func printAnalyseInfo(command *cobra.Command, info *application.AnalyseRunInfo) {
+	if info == nil {
+		return
+	}
+
+	command.PrintErrln("Settings:")
+	command.PrintErrf("  directories: %s\n", strings.Join(info.Directories, ", "))
+	command.PrintErrf("  recursive: %t\n", info.Recursive)
+	command.PrintErrf("  depth: %d\n", info.Depth)
+	command.PrintErrf("  timeout: %s\n", info.DirectoryTimeout)
+	command.PrintErrf("  files: %t\n", info.IncludeFiles)
+	command.PrintErrln()
 }
 
 func printAnalyseResult(result *application.AnalyseResult) {
