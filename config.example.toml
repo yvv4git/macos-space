@@ -11,6 +11,8 @@ directories = [
   "/private/var/db/diagnostics",
   "/Users/Shared",
 ]
-exclude = []
+exclude = [
+  "~/Documents"
+]
 directoryTimeout = "120s"
 depth = 0

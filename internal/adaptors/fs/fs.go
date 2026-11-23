@@ -301,6 +301,11 @@ func (f *FS) directoryFileUsages(ctx context.Context, root string, timeout time.
 	return usages, nil
 }
 
+type directorySizeResult struct {
+	sizeBytes int64
+	err       error
+}
+
 func (f *FS) directorySizeWithTimeout(ctx context.Context, root string, timeout time.Duration, excludePaths []string, onProgress func(string)) (int64, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -309,10 +314,41 @@ func (f *FS) directorySizeWithTimeout(ctx context.Context, root string, timeout 
 		return f.directorySize(ctx, root, excludePaths, onProgress)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	scanCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	return f.directorySize(ctx, root, excludePaths, onProgress)
+	results := make(chan directorySizeResult, 1)
+	go f.scanDirectory(scanCtx, results, root, excludePaths, onProgress)
+
+	select {
+	case result := <-results:
+		return result.sizeBytes, result.err
+	case <-scanCtx.Done():
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+
+		return 0, context.DeadlineExceeded
+	}
+}
+
+func (f *FS) scanDirectory(ctx context.Context, results chan<- directorySizeResult, root string, excludePaths []string, onProgress func(string)) {
+	reporter := progressReporter{ctx: ctx, report: onProgress}
+	sizeBytes, err := f.directorySize(ctx, root, excludePaths, reporter.Report)
+	results <- directorySizeResult{sizeBytes: sizeBytes, err: err}
+}
+
+type progressReporter struct {
+	ctx    context.Context
+	report func(string)
+}
+
+func (p progressReporter) Report(path string) {
+	if p.ctx.Err() != nil || p.report == nil {
+		return
+	}
+
+	p.report(path)
 }
 
 func (f *FS) directoryOwnSizeWithTimeout(ctx context.Context, root string, timeout time.Duration) (int64, error) {

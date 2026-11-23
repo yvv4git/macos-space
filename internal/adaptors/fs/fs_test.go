@@ -169,6 +169,11 @@ func TestDirectoryUsagesSkipsTimeout(t *testing.T) {
 			t.Errorf("timed out path %q present, recursive %t", slowChild, recursive)
 		}
 	}
+
+	_, err := New().directorySizeWithTimeout(context.Background(), slowChild, time.Millisecond, nil, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
 }
 
 func TestDirectoryUsagesReportsNestedProgress(t *testing.T) {
