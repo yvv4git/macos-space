@@ -366,6 +366,18 @@ func normalizeExcludePaths(paths []string) []string {
 	return normalized
 }
 
+func exclusionsForRoot(root string, excludePaths []string) []string {
+	exclusions := make([]string, 0, len(excludePaths))
+	for _, excludePath := range excludePaths {
+		if isExcludedPath(root, []string{excludePath}) {
+			continue
+		}
+		exclusions = append(exclusions, excludePath)
+	}
+
+	return exclusions
+}
+
 func isExcludedPath(path string, excludePaths []string) bool {
 	cleanPath := filepath.Clean(path)
 	for _, excludePath := range excludePaths {
