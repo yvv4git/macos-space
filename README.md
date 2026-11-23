@@ -43,3 +43,7 @@ depth = 0
 ```
 
 `directoryTimeout` limits time spent calculating one directory size. `exclude` contains paths skipped during scan.
+
+## Дополнительные места
+
+Список системных и временных каталогов вне дома: [doc/system_places.md](doc/system_places.md).

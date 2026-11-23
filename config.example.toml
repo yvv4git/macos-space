@@ -2,9 +2,21 @@
 directories = [
   "~/Downloads",
   "~/Library/Caches",
+  "/Library/Logs",
+  "/Library/Updates",
+  "/private/tmp",
+  "/private/var/tmp",
+  "/private/var/log",
+  "/private/var/db/diagnostics",
+  "/Users/Shared",
 ]
 exclude = [
   "~/Library",
+  "~/.Trash",
+  "~/Documents",
+  "~/Movies",
+  "~/Music",
+  "~/Pictures",
 ]
 directoryTimeout = "120s"
 depth = 0
