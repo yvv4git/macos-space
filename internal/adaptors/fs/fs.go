@@ -302,6 +302,9 @@ func (f *FS) directoryFileUsages(ctx context.Context, root string, timeout time.
 }
 
 func (f *FS) directorySizeWithTimeout(ctx context.Context, root string, timeout time.Duration, excludePaths []string, onProgress func(string)) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	if timeout <= 0 {
 		return f.directorySize(ctx, root, excludePaths, onProgress)
 	}

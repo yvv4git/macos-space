@@ -3,9 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/yvv4git/macos-space/internal/adaptors/fs"
@@ -40,7 +37,7 @@ func NewAnalyseApplication(parent context.Context, opts AnalyseOptions) (*Analys
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	ctx, stop := context.WithCancel(parent)
 
 	return &AnalyseApplication{
 		ctx:     ctx,

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -25,7 +28,11 @@ func main() {
 	rootCommand.AddCommand(cmd.SetupClearCommand())
 	rootCommand.AddCommand(cmd.SetupSetupCommand(defaultConfigContent))
 
-	if err := rootCommand.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := rootCommand.ExecuteContext(ctx); err != nil {
+		stop()
 		os.Exit(1)
 	}
 }

@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -167,6 +168,29 @@ func TestDirectoryUsagesSkipsTimeout(t *testing.T) {
 		if containsUsagePath(usages, slowChild) {
 			t.Errorf("timed out path %q present, recursive %t", slowChild, recursive)
 		}
+	}
+}
+
+func TestDirectoryUsagesStopsOnCanceledContext(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatalf("create directory %q: %v", child, err)
+	}
+	if err := os.WriteFile(filepath.Join(child, "file.txt"), nil, 0o600); err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	params := &analyseports.DirectoryUsagesParams{
+		Paths:            []string{root},
+		DirectoryTimeout: time.Minute,
+	}
+	_, err := New().DirectoryUsages(ctx, params)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", err)
 	}
 }
 
