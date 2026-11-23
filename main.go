@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -16,6 +17,8 @@ import (
 
 //go:embed config.example.toml
 var defaultConfigContent string
+
+const interruptExitCode = 130
 
 func main() {
 	rootCommand := &cobra.Command{
@@ -31,10 +34,21 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go exitOnSignal(signals, stop)
+
 	if err := rootCommand.ExecuteContext(ctx); err != nil {
 		stop()
 		os.Exit(1)
 	}
+}
+
+func exitOnSignal(signals <-chan os.Signal, stop context.CancelFunc) {
+	<-signals
+	fmt.Fprintln(os.Stderr)
+	stop()
+	os.Exit(interruptExitCode)
 }
 
 func defaultConfigPath() string {

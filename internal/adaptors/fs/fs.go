@@ -52,7 +52,7 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 
 			if entry.IsDir() {
 				f.reportProgress(params, childPath)
-				sizeBytes, err := f.directorySizeWithTimeout(ctx, childPath, params.DirectoryTimeout, rootExcludes, nil)
+				sizeBytes, err := f.directorySizeWithTimeout(ctx, childPath, params.DirectoryTimeout, rootExcludes, params.OnProgress)
 				if err != nil {
 					if isLocalScanTimeout(err, ctx) {
 						continue

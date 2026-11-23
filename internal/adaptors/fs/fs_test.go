@@ -171,6 +171,40 @@ func TestDirectoryUsagesSkipsTimeout(t *testing.T) {
 	}
 }
 
+func TestDirectoryUsagesReportsNestedProgress(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child")
+	nested := filepath.Join(child, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("create directory %q: %v", nested, err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "file.txt"), nil, 0o600); err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+
+	progress := make([]string, 0)
+	params := &analyseports.DirectoryUsagesParams{
+		Paths:            []string{root},
+		DirectoryTimeout: time.Second,
+		OnProgress: func(path string) {
+			progress = append(progress, path)
+		},
+	}
+	if _, err := New().DirectoryUsages(context.Background(), params); err != nil {
+		t.Fatalf("directory usages: %v", err)
+	}
+
+	found := false
+	for _, path := range progress {
+		if path == nested {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("missing nested path %q in progress %v", nested, progress)
+	}
+}
+
 func TestDirectoryUsagesStopsOnCanceledContext(t *testing.T) {
 	root := t.TempDir()
 	child := filepath.Join(root, "child")
