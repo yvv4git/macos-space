@@ -1,5 +1,6 @@
 [analyse]
 directories = [
+  "~",
   "~/Downloads",
   "~/Library/Caches",
   "/Library/Logs",
@@ -10,22 +11,6 @@ directories = [
   "/private/var/db/diagnostics",
   "/Users/Shared",
 ]
-exclude = [
-  "~/Library",
-  "~/.Trash",
-  "~/Documents",
-  "~/Movies",
-  "~/Music",
-  "~/Pictures",
-  "~/Library/Caches/com.apple.HomeKit",
-  "~/Library/Caches/CloudKit",
-  "~/Library/Caches/com.apple.Safari",
-  "~/Library/Caches/com.apple.findmy.imagecache",
-  "~/Library/Caches/com.apple.findmy.fmfcore",
-  "~/Library/Caches/FamilyCircle",
-  "~/Library/Caches/com.apple.homed",
-  "~/Library/Caches/com.apple.findmy.fmipcore",
-  "~/Library/Caches/com.apple.ap.adprivacyd",
-]
+exclude = []
 directoryTimeout = "120s"
 depth = 0

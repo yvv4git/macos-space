@@ -71,6 +71,58 @@ func TestDirectoryUsagesExplicitRootOverridesExclude(t *testing.T) {
 	}
 }
 
+func TestDirectoryUsagesSkipsPermissionErrors(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+
+	root := t.TempDir()
+	restricted := filepath.Join(root, "restricted")
+	allowed := filepath.Join(root, "allowed")
+	for _, dir := range []string{restricted, allowed} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("create directory %q: %v", dir, err)
+		}
+	}
+
+	path := filepath.Join(allowed, "file.txt")
+	if err := os.WriteFile(path, make([]byte, 4096), 0o600); err != nil {
+		t.Fatalf("create file %q: %v", path, err)
+	}
+	if err := os.Chmod(restricted, 0o000); err != nil {
+		t.Fatalf("chmod directory %q: %v", restricted, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(restricted, 0o755)
+	})
+
+	for _, recursive := range []bool{false, true} {
+		params := &analyseports.DirectoryUsagesParams{
+			Paths:            []string{root},
+			Recursive:        recursive,
+			DirectoryTimeout: time.Second,
+		}
+
+		usages, err := New().DirectoryUsages(context.Background(), params)
+		if err != nil {
+			t.Fatalf("directory usages, recursive %t: %v", recursive, err)
+		}
+
+		found := false
+		for _, usage := range usages {
+			if usage.Path == allowed {
+				found = true
+				if usage.SizeBytes == 0 {
+					t.Errorf("zero size for %q, recursive %t", allowed, recursive)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing path %q, recursive %t", allowed, recursive)
+		}
+	}
+}
+
 func containsUsagePath(usages []domain.DirectoryUsage, path string) bool {
 	for _, usage := range usages {
 		if usage.Path == path {

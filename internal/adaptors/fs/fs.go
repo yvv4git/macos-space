@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -90,6 +91,12 @@ func (f *FS) directorySize(ctx context.Context, root string, excludePaths []stri
 
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if errors.Is(walkErr, fs.ErrPermission) {
+				if entry != nil && entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			return fmt.Errorf("access %q: %w", path, walkErr)
 		}
 		if err := ctx.Err(); err != nil {
@@ -111,6 +118,9 @@ func (f *FS) directorySize(ctx context.Context, root string, excludePaths []stri
 
 		info, err := entry.Info()
 		if err != nil {
+			if errors.Is(err, fs.ErrPermission) {
+				return nil
+			}
 			return fmt.Errorf("read file info %q: %w", path, err)
 		}
 
@@ -137,6 +147,12 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 		rootExcludes := exclusionsForRoot(root, excludePaths)
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
+				if errors.Is(walkErr, fs.ErrPermission) {
+					if entry != nil && entry.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
 				return fmt.Errorf("access %q: %w", path, walkErr)
 			}
 			if err := ctx.Err(); err != nil {
@@ -156,6 +172,9 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 
 					info, err := entry.Info()
 					if err != nil {
+						if errors.Is(err, fs.ErrPermission) {
+							return nil
+						}
 						return fmt.Errorf("read file info %q: %w", path, err)
 					}
 
