@@ -54,6 +54,9 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 				f.reportProgress(params, childPath)
 				sizeBytes, err := f.directorySizeWithTimeout(ctx, childPath, params.DirectoryTimeout, rootExcludes, nil)
 				if err != nil {
+					if isLocalScanTimeout(err, ctx) {
+						continue
+					}
 					return nil, fmt.Errorf("calculate directory size %q: %w", childPath, err)
 				}
 
@@ -199,6 +202,9 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 			f.reportProgress(params, path)
 			sizeBytes, err := f.directorySizeWithTimeout(ctx, path, params.DirectoryTimeout, rootExcludes, params.OnProgress)
 			if err != nil {
+				if isLocalScanTimeout(err, ctx) {
+					return filepath.SkipDir
+				}
 				return err
 			}
 
@@ -391,6 +397,10 @@ func exclusionsForRoot(root string, excludePaths []string) []string {
 	}
 
 	return exclusions
+}
+
+func isLocalScanTimeout(err error, ctx context.Context) bool {
+	return errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
 }
 
 func isExcludedPath(path string, excludePaths []string) bool {

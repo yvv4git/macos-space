@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,6 +120,52 @@ func TestDirectoryUsagesSkipsPermissionErrors(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("missing path %q, recursive %t", allowed, recursive)
+		}
+	}
+}
+
+func TestDirectoryUsagesSkipsTimeout(t *testing.T) {
+	root := t.TempDir()
+	slow := filepath.Join(root, "slow")
+	fast := filepath.Join(root, "fast")
+	slowChild := filepath.Join(slow, "child")
+	fastChild := filepath.Join(fast, "child")
+
+	for _, dir := range []string{slowChild, fastChild} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("create directory %q: %v", dir, err)
+		}
+	}
+
+	const slowFiles = 20000
+	for index := 0; index < slowFiles; index++ {
+		path := filepath.Join(slowChild, fmt.Sprintf("file-%d.txt", index))
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatalf("create file %q: %v", path, err)
+		}
+	}
+
+	path := filepath.Join(fastChild, "file.txt")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("create file %q: %v", path, err)
+	}
+
+	for _, recursive := range []bool{false, true} {
+		params := &analyseports.DirectoryUsagesParams{
+			Paths:            []string{slow, fast},
+			Recursive:        recursive,
+			DirectoryTimeout: 20 * time.Millisecond,
+		}
+
+		usages, err := New().DirectoryUsages(context.Background(), params)
+		if err != nil {
+			t.Fatalf("directory usages, recursive %t: %v", recursive, err)
+		}
+		if !containsUsagePath(usages, fastChild) {
+			t.Errorf("missing path %q, recursive %t", fastChild, recursive)
+		}
+		if containsUsagePath(usages, slowChild) {
+			t.Errorf("timed out path %q present, recursive %t", slowChild, recursive)
 		}
 	}
 }
