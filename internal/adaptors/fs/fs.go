@@ -32,10 +32,8 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if isExcludedPath(path, excludePaths) {
-			continue
-		}
 
+		rootExcludes := exclusionsForRoot(path, excludePaths)
 		entries, err := os.ReadDir(path)
 		if err != nil {
 			return nil, fmt.Errorf("read directory %q: %w", path, err)
@@ -47,13 +45,13 @@ func (f *FS) DirectoryUsages(ctx context.Context, params *analyseports.Directory
 			}
 
 			childPath := filepath.Join(path, entry.Name())
-			if isExcludedPath(childPath, excludePaths) {
+			if isExcludedPath(childPath, rootExcludes) {
 				continue
 			}
 
 			if entry.IsDir() {
 				f.reportProgress(params, childPath)
-				sizeBytes, err := f.directorySizeWithTimeout(ctx, childPath, params.DirectoryTimeout, excludePaths, nil)
+				sizeBytes, err := f.directorySizeWithTimeout(ctx, childPath, params.DirectoryTimeout, rootExcludes, nil)
 				if err != nil {
 					return nil, fmt.Errorf("calculate directory size %q: %w", childPath, err)
 				}
@@ -135,10 +133,8 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if isExcludedPath(root, excludePaths) {
-			continue
-		}
 
+		rootExcludes := exclusionsForRoot(root, excludePaths)
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return fmt.Errorf("access %q: %w", path, walkErr)
@@ -146,7 +142,7 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("scan %q: %w", path, err)
 			}
-			if isExcludedPath(path, excludePaths) {
+			if isExcludedPath(path, rootExcludes) {
 				if entry.IsDir() {
 					return filepath.SkipDir
 				}
@@ -182,7 +178,7 @@ func (f *FS) recursiveDirectoryUsages(ctx context.Context, params *analyseports.
 
 			seen[path] = struct{}{}
 			f.reportProgress(params, path)
-			sizeBytes, err := f.directorySizeWithTimeout(ctx, path, params.DirectoryTimeout, excludePaths, params.OnProgress)
+			sizeBytes, err := f.directorySizeWithTimeout(ctx, path, params.DirectoryTimeout, rootExcludes, params.OnProgress)
 			if err != nil {
 				return err
 			}
