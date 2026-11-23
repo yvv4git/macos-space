@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/yvv4git/macos-space/internal/adaptors/fs"
 	"github.com/yvv4git/macos-space/internal/config"
@@ -24,6 +25,15 @@ type AnalyseApplication struct {
 	cfg     config.Config
 }
 
+type AnalyseRunInfo struct {
+	Directories      []string
+	Exclude          []string
+	Recursive        bool
+	Depth            int
+	DirectoryTimeout time.Duration
+	IncludeFiles     bool
+}
+
 func NewAnalyseApplication(parent context.Context, opts AnalyseOptions) (*AnalyseApplication, error) {
 	var cfg config.Config
 	if err := config.Load(opts.ConfigPath, &cfg); err != nil {
@@ -40,8 +50,37 @@ func NewAnalyseApplication(parent context.Context, opts AnalyseOptions) (*Analys
 	}, nil
 }
 
-func (a *AnalyseApplication) Run(recursive bool) (*analyse.Result, error) {
-	return a.service.Run(a.ctx, a.cfg.Analyse.Directories, recursive, a.cfg.Analyse.DirectoryTimeout)
+func (a *AnalyseApplication) RunInfo(recursive bool, depth int, path string, includeFiles bool, exclude []string) *AnalyseRunInfo {
+	directories := a.cfg.Analyse.Directories
+	if path != "" {
+		directories = []string{path}
+	}
+	excludes := a.cfg.Analyse.Exclude
+	if len(exclude) > 0 {
+		excludes = exclude
+	}
+
+	return &AnalyseRunInfo{
+		Directories:      directories,
+		Exclude:          excludes,
+		Recursive:        recursive,
+		Depth:            depth,
+		DirectoryTimeout: a.cfg.Analyse.DirectoryTimeout,
+		IncludeFiles:     includeFiles,
+	}
+}
+
+func (a *AnalyseApplication) Run(recursive bool, depth int, path string, includeFiles bool, exclude []string, onProgress func(string)) (*analyse.Result, error) {
+	directories := a.cfg.Analyse.Directories
+	if path != "" {
+		directories = []string{path}
+	}
+	excludes := a.cfg.Analyse.Exclude
+	if len(exclude) > 0 {
+		excludes = exclude
+	}
+
+	return a.service.Run(a.ctx, directories, recursive, depth, includeFiles, excludes, a.cfg.Analyse.DirectoryTimeout, onProgress)
 }
 
 func (a *AnalyseApplication) Shutdown() {

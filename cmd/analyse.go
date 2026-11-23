@@ -2,6 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -15,16 +20,55 @@ func SetupAnalyseCommand() *cobra.Command {
 		Use:          "analyse",
 		Short:        "Show disk usage for configured directories",
 		SilenceUsage: true,
-		Example: `  # Run with default config.toml
+		Example: `  # Run with default config
   macos-space analyse
 
   # Run with explicit config path
   macos-space analyse --config config.toml
-  macos-space analyse -c config.toml`,
+  macos-space analyse -c config.toml
+
+  # Scan a specific directory
+  macos-space analyse --path /Users/vladimireliseev/Downloads
+  macos-space analyse -p /Users/vladimireliseev/Downloads
+
+  # Walk directories recursively
+  macos-space analyse --recursive
+  macos-space analyse -r
+
+  # Limit recursive depth (0 means unlimited)
+  macos-space analyse --depth 2
+  macos-space analyse -d 2
+
+  # Include files in output
+  macos-space analyse --files
+  macos-space analyse -f
+
+  # Exclude directories
+  macos-space analyse --exclude ~/Downloads/tmp
+  macos-space analyse -e ~/Downloads/tmp -e ~/Downloads/cache
+
+  # Combine flags
+  macos-space analyse --recursive --depth 2
+  macos-space analyse -r -d 2
+  macos-space analyse -p ~/Downloads -r -d 1
+  macos-space analyse --recursive --files
+  macos-space analyse -r -f
+  macos-space analyse --path /Users/vladimireliseev/Downloads --recursive
+  macos-space analyse -p /Users/vladimireliseev/Downloads -r
+  macos-space analyse --path /Users/vladimireliseev/Downloads --recursive --depth 2
+  macos-space analyse -p /Users/vladimireliseev/Downloads -r -d 2
+  macos-space analyse --path /Users/vladimireliseev/Downloads --recursive --depth 1 --files
+  macos-space analyse -p /Users/vladimireliseev/Downloads -r -d 1 -f
+  macos-space analyse --config config.toml --path /Users/vladimireliseev/Downloads --recursive --depth 2 --files --exclude ~/Downloads/tmp
+  macos-space analyse -c config.toml -p /Users/vladimireliseev/Downloads -r -d 2 -f -e ~/Downloads/tmp`,
 		RunE: runAnalyse,
 	}
 
 	command.Flags().BoolP("recursive", "r", false, "walk directories recursively")
+	command.Flags().IntP("depth", "d", 0, "limit recursive depth (0 means unlimited)")
+	command.Flags().StringP("path", "p", "", "scan a specific directory instead of configured directories")
+	command.Flags().BoolP("files", "f", false, "include files in output")
+	command.Flags().StringArrayP("exclude", "e", nil, "directories to exclude from scan (can be repeated)")
 
 	return command
 }
@@ -40,6 +84,26 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 		return fmt.Errorf("get recursive flag: %w", err)
 	}
 
+	depth, err := command.Flags().GetInt("depth")
+	if err != nil {
+		return fmt.Errorf("get depth flag: %w", err)
+	}
+
+	path, err := command.Flags().GetString("path")
+	if err != nil {
+		return fmt.Errorf("get path flag: %w", err)
+	}
+
+	includeFiles, err := command.Flags().GetBool("files")
+	if err != nil {
+		return fmt.Errorf("get files flag: %w", err)
+	}
+
+	excludePaths, err := command.Flags().GetStringArray("exclude")
+	if err != nil {
+		return fmt.Errorf("get exclude flag: %w", err)
+	}
+
 	app, err := application.NewAnalyseApplication(command.Context(), application.AnalyseOptions{
 		ConfigPath: configPath,
 	})
@@ -48,7 +112,12 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 	}
 	defer app.Shutdown()
 
-	result, err := app.Run(recursive)
+	info := app.RunInfo(recursive, depth, path, includeFiles, excludePaths)
+	printAnalyseInfo(command, info)
+
+	progress := newAnalyseProgressPrinter(command)
+	result, err := app.Run(recursive, depth, path, includeFiles, excludePaths, progress.Report)
+	progress.Done()
 	if err != nil {
 		return err
 	}
@@ -58,20 +127,183 @@ func runAnalyse(command *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printAnalyseResult(result *application.AnalyseResult) {
-	sizeWidth := 0
-	formattedSizes := make([]string, 0, len(result.Directories))
+type analyseNode struct {
+	usage    application.DirectoryUsage
+	children []*analyseNode
+}
 
-	for _, directory := range result.Directories {
-		formattedSize := formatBytes(directory.SizeBytes)
-		if len(formattedSize) > sizeWidth {
-			sizeWidth = len(formattedSize)
-		}
-		formattedSizes = append(formattedSizes, formattedSize)
+type analyseProgressPrinter struct {
+	command  *cobra.Command
+	interval time.Duration
+	mu       sync.Mutex
+	last     time.Time
+	printed  bool
+}
+
+func newAnalyseProgressPrinter(command *cobra.Command) *analyseProgressPrinter {
+	return &analyseProgressPrinter{
+		command:  command,
+		interval: 250 * time.Millisecond,
+	}
+}
+
+func (p *analyseProgressPrinter) Report(path string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+	if !p.last.IsZero() && now.Sub(p.last) < p.interval {
+		return
 	}
 
-	for index, directory := range result.Directories {
-		fmt.Printf("%*s  %s\n", sizeWidth, formattedSizes[index], directory.Path)
+	p.last = now
+	p.printed = true
+	p.command.PrintErrf("\rScanning: %-80.80s", path)
+}
+
+func (p *analyseProgressPrinter) Done() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.printed {
+		return
+	}
+
+	p.command.PrintErrf("\r%-100.100s\r", "")
+}
+
+func printAnalyseInfo(command *cobra.Command, info *application.AnalyseRunInfo) {
+	if info == nil {
+		return
+	}
+
+	command.PrintErrln("Settings:")
+	command.PrintErrf("  directories: %s\n", strings.Join(info.Directories, ", "))
+	command.PrintErrf("  exclude: %s\n", strings.Join(info.Exclude, ", "))
+	command.PrintErrf("  recursive: %t\n", info.Recursive)
+	command.PrintErrf("  depth: %d\n", info.Depth)
+	command.PrintErrf("  timeout: %s\n", info.DirectoryTimeout)
+	command.PrintErrf("  files: %t\n", info.IncludeFiles)
+	command.PrintErrln()
+}
+
+func printAnalyseResult(result *application.AnalyseResult) {
+	roots := buildAnalyseTree(result.Directories)
+	sizeWidth := analyseTreeSizeWidth(roots)
+	for index, root := range roots {
+		printAnalyseNode(root, "", index == len(roots)-1, true, sizeWidth)
+	}
+}
+
+func buildAnalyseTree(usages []application.DirectoryUsage) []*analyseNode {
+	nodes := make(map[string]*analyseNode, len(usages))
+	sortedUsages := append([]application.DirectoryUsage(nil), usages...)
+	sort.Slice(sortedUsages, func(i, j int) bool {
+		return len(sortedUsages[i].Path) < len(sortedUsages[j].Path)
+	})
+
+	for _, usage := range sortedUsages {
+		nodes[usage.Path] = &analyseNode{usage: usage}
+	}
+
+	roots := make([]*analyseNode, 0)
+	for _, usage := range sortedUsages {
+		node := nodes[usage.Path]
+		parentPath := parentAnalysePath(usage.Path, nodes)
+		if parentPath == "" {
+			roots = append(roots, node)
+			continue
+		}
+
+		parent := nodes[parentPath]
+		parent.children = append(parent.children, node)
+	}
+
+	sortAnalyseNodes(roots)
+	return roots
+}
+
+func parentAnalysePath(path string, nodes map[string]*analyseNode) string {
+	current := filepath.Dir(path)
+	for current != "." && current != string(filepath.Separator) {
+		if _, ok := nodes[current]; ok {
+			return current
+		}
+
+		next := filepath.Dir(current)
+		if next == current {
+			break
+		}
+		current = next
+	}
+
+	if _, ok := nodes[current]; ok {
+		return current
+	}
+
+	return ""
+}
+
+func sortAnalyseNodes(nodes []*analyseNode) {
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].usage.SizeBytes == nodes[j].usage.SizeBytes {
+			return nodes[i].usage.Path < nodes[j].usage.Path
+		}
+
+		return nodes[i].usage.SizeBytes > nodes[j].usage.SizeBytes
+	})
+
+	for _, node := range nodes {
+		sortAnalyseNodes(node.children)
+	}
+}
+
+func analyseTreeSizeWidth(nodes []*analyseNode) int {
+	width := 0
+	var walk func([]*analyseNode)
+	walk = func(children []*analyseNode) {
+		for _, node := range children {
+			formattedSize := formatBytes(node.usage.SizeBytes)
+			if len(formattedSize) > width {
+				width = len(formattedSize)
+			}
+			walk(node.children)
+		}
+	}
+	walk(nodes)
+
+	return width
+}
+
+func printAnalyseNode(node *analyseNode, prefix string, isLast bool, isRoot bool, sizeWidth int) {
+	label := node.usage.Path
+	connector := ""
+	if !isRoot {
+		label = filepath.Base(node.usage.Path)
+		connector = "├── "
+		if isLast {
+			connector = "└── "
+		}
+	}
+
+	suffix := ""
+	if node.usage.IsDir {
+		suffix = "/"
+	}
+
+	fmt.Printf("%*s  %s%s%s%s\n", sizeWidth, formatBytes(node.usage.SizeBytes), prefix, connector, label, suffix)
+
+	childPrefix := prefix
+	if !isRoot {
+		if isLast {
+			childPrefix += "    "
+		} else {
+			childPrefix += "│   "
+		}
+	}
+
+	for index, child := range node.children {
+		printAnalyseNode(child, childPrefix, index == len(node.children)-1, false, sizeWidth)
 	}
 }
 
